@@ -18,6 +18,7 @@ Pacman agents (in searchAgents.py).
 """
 
 import util
+from util import Stack, Queue, PriorityQueue
 
 class SearchProblem:
     """
@@ -61,6 +62,100 @@ class SearchProblem:
         """
         util.raiseNotDefined()
 
+class Path:
+
+    def __init__(self, start_state):
+        self.path = []
+        self.total_cost = 0.0
+        self.path = [[start_state, None]]
+
+    def __copy__(self):
+        new = Path(None)
+        new.path = [p for p in self.path]
+        new.total_cost = self.total_cost
+        return new
+
+    def appended(self, state, action, cost):
+        new = self.__copy__()
+        new.path += [[state, action]]
+        new.total_cost += cost
+        return new
+
+    def end_state(self):
+        return self.path[-1][0]
+
+    def actions(self):
+        return [a for _, a in self.path[1:]]
+
+    def cost(self):
+        return self.total_cost
+
+    def end_forms_cycle(self):
+        end = self.end_state()
+        for i in range(len(self.path) - 2, -1, -1):
+            if end == self.path[i][0]:
+                return True
+        return False
+
+class Frontier:
+
+    def __init__(self, problem, type='Stack', heuristic=None, cycle_checking=False, path_checking=False):
+        if type == 'Stack':
+            self.frontier = Stack()
+        elif type == 'Queue':
+            self.frontier = Queue()
+        elif type == 'PriorityQueue':
+            self.frontier = PriorityQueue()
+        else:
+            util.raiseNotDefined()
+
+        self.problem = problem
+        self.heuristic = heuristic
+
+        self.cycle_checking = cycle_checking
+        self.path_checking = path_checking
+        if cycle_checking:
+            self.visited = {}
+
+    def insert(self, path):
+        if self.cycle_checking:
+            if path.end_state() in self.visited:
+                if self.visited[path.end_state()] > self.cost(path):
+                    self.visited[path.end_state()] = self.cost(path)
+                else:
+                    return
+            else:
+                self.visited[path.end_state()] = self.cost(path)
+        elif self.path_checking:
+            if path.end_forms_cycle():
+                return
+
+        if isinstance(self.frontier, PriorityQueue):
+            self.frontier.push(path, self.cost(path))
+        else:
+            self.frontier.push(path)
+
+    def extract(self):
+        expanded = self.frontier.pop()
+        return expanded
+
+    def empty(self):
+        return self.frontier.isEmpty()
+
+    def cost(self, path):
+        cost = path.cost()
+        if self.heuristic is not None:
+            cost += self.heuristic(path.end_state(), self.problem)
+        return cost
+
+    def better_path_visited(self, path):
+        if not self.cycle_checking:
+            return False
+        if path.end_state() not in self.visited:
+            return False
+        elif self.cost(path) <= self.visited[path.end_state()]:
+            return False
+        return True
 
 def tinyMazeSearch(problem):
     """
@@ -71,6 +166,18 @@ def tinyMazeSearch(problem):
     s = Directions.SOUTH
     w = Directions.WEST
     return  [s, s, w, s, w, w, s, w]
+
+def search(problem, frontier):
+    frontier.insert(Path(start_state=problem.getStartState()))
+    while not frontier.empty():
+        n = frontier.extract()
+        state = n.end_state()
+        if not frontier.better_path_visited(n):
+            if problem.isGoalState(state):
+                return n.actions()
+            for succ in problem.getSuccessors(state):
+                frontier.insert(n.appended(*succ))
+    return []
 
 def depthFirstSearch(problem):
     """
@@ -87,17 +194,17 @@ def depthFirstSearch(problem):
     print "Start's successors:", problem.getSuccessors(problem.getStartState())
     """
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    return search(problem, Frontier(problem=problem, type='Stack', path_checking=True))
 
 def breadthFirstSearch(problem):
     """Search the shallowest nodes in the search tree first."""
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    return search(problem, Frontier(problem=problem, type='Queue', cycle_checking=True))
 
 def uniformCostSearch(problem):
     """Search the node of least total cost first."""
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    return search(problem, Frontier(problem=problem, type='PriorityQueue', cycle_checking=True))
 
 def nullHeuristic(state, problem=None):
     """
@@ -109,7 +216,7 @@ def nullHeuristic(state, problem=None):
 def aStarSearch(problem, heuristic=nullHeuristic):
     """Search the node that has the lowest combined cost and heuristic first."""
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    return search(problem, Frontier(problem=problem, type='PriorityQueue', cycle_checking=True, heuristic=heuristic))
 
 
 # Abbreviations
