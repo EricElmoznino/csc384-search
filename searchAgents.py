@@ -444,6 +444,126 @@ class AStarFoodSearchAgent(SearchAgent):
         self.searchFunction = lambda prob: search.aStarSearch(prob, foodHeuristic)
         self.searchType = FoodSearchProblem
 
+def get_wall_blobs(walls):
+    walls = [w for w in walls]
+    blobs = []
+    while len(walls) > 0:
+        def propagate_blob(blob, root):
+            blob += [root]
+            def propagate(direction):
+                loc = (root[0] + direction[0], root[1] + direction[1])
+                if loc in walls:
+                    walls.remove(loc)
+                    propagate_blob(blob, loc)
+            propagate((-1, 0))
+            propagate((-1, 1))
+            propagate((0, 1))
+            propagate((1, 1))
+            propagate((1, 0))
+            propagate((1, -1))
+            propagate((0, -1))
+            propagate((-1, -1))
+            return blob
+        blobs.append(propagate_blob([], walls.pop()))
+    return blobs
+
+def is_obstructing_wall(x1, x2, wall_blob):
+    def outer_product(p):
+        return (p[0] - x1[0]) * (x2[1] - x1[1]) - (p[1] - x1[1]) * (x2[0] - x1[0])
+    potential_obstructions = [w for w in wall_blob
+                              if min(x1[0], x2[0]) < w[0] < max(x1[0], x2[0]) and
+                              min(x1[1], x2[1]) < w[1] < max(x1[1], x2[1])]
+    on_left = on_right = False
+    for w in potential_obstructions:
+        val = outer_product(w)
+        if val < 0:
+            on_left = True
+        elif val > 0:
+            on_right = True
+        else:
+            return True
+        if on_left and on_right:
+            return True
+    return False
+
+def get_wall_surroundings(wall):
+    wall = set(wall)
+    surroundings = set()
+    for w in wall:
+        def append(direction):
+            loc = (w[0] + direction[0], w[1] + direction[1])
+            if loc not in wall:
+                surroundings.add(loc)
+        append((-1, 0))
+        append((-1, 1))
+        append((0, 1))
+        append((1, 1))
+        append((1, 0))
+        append((1, -1))
+        append((0, -1))
+        append((-1, -1))
+    return list(surroundings)
+
+def split_wall_down_line(x1, x2, wall_blob):
+    def outer_product(p):
+        return (p[0] - x1[0]) * (x2[1] - x1[1]) - (p[1] - x1[1]) * (x2[0] - x1[0])
+    left,right = [], []
+    for p in wall_blob:
+        val = outer_product(p)
+        if val < 0:
+            left.append(p)
+        elif val > 0:
+            right.append(p)
+
+    wall_blobs_left = get_wall_blobs(left)
+    wall_blobs_right = get_wall_blobs(right)
+
+    surroundings_left = [get_wall_surroundings(w) for w in wall_blobs_left]
+    surroundings_right = [get_wall_surroundings(w) for w in wall_blobs_right]
+    surroundings_left = [[s for s in surrounding if outer_product(s) < 0] for surrounding in surroundings_left]
+    surroundings_right = [[s for s in surrounding if outer_product(s) > 0] for surrounding in surroundings_right]
+    return surroundings_left + surroundings_right
+
+def convex_hull_path(start, end, points):
+    points += [end]
+
+    def next_point(x1, x2):
+        import math
+        def dotproduct(v1, v2):
+            return sum((a * b) for a, b in zip(v1, v2))
+        def length(v):
+            return math.sqrt(dotproduct(v, v))
+        def angle(v1, v2):
+            return math.acos(min(1, max(-1, dotproduct(v1, v2) / (length(v1) * length(v2)))))
+
+        v1 = (x2[0] - x1[0], x2[1] - x1[1])
+        min_angle = math.pi + 1
+        h = None
+        for p in points:
+            if p == x2:
+                continue
+            v2 = (p[0] - x2[0], p[1] - x2[1])
+            a = angle(v1, v2)
+            if a < min_angle:
+                min_angle = a
+                h = p
+
+        return h
+
+    path = [start]
+    prev, cur = end, path[-1]
+    while (cur != end):
+        path.append(next_point(prev, cur))
+        prev, cur = cur, path[-1]
+    return path
+
+def path_distance(path, bounds):
+    from util import manhattanDistance
+    for p in path:
+        if p[0] < 0 or p[0] >= bounds[0] or p[1] < 0 or p[1] >= bounds[1]:
+            return 999999999
+    return sum([manhattanDistance(path[i], path[i + 1]) for i in range(len(path) - 1)])
+
 def foodHeuristic(state, problem):
     """Your heuristic for the FoodSearchProblem goes here.
 
@@ -472,8 +592,36 @@ def foodHeuristic(state, problem):
     """
     position, foodGrid = state
     "*** YOUR CODE HERE ***"
+    from util import manhattanDistance
+
     foods = foodGrid.asList()
-    return max([mazeDistance(position, f, problem.startingGameState) for f in foods] + [0])
+    walls = problem.walls.asList()
+    width, height = foodGrid.width, foodGrid.height
+
+    walls = [(w[0] - 1, w[1] - 1) for w in walls if 0 < w[0] < width - 1 and 0 < w[1] < height - 1]
+    foods = [(f[0] - 1, f[1] - 1) for f in foods]
+    position = (position[0] - 1, position[1] - 1)
+    width, height = width - 2, height - 2
+
+    wall_blobs = get_wall_blobs(walls)
+
+    longest_dist = 0
+    for f in foods:
+        direct_distance = manhattanDistance(position, f)
+        if direct_distance > longest_dist:
+            longest_dist = direct_distance
+
+        for blob in wall_blobs:
+            if not is_obstructing_wall(position, f, blob):
+                continue
+
+            point_sets = split_wall_down_line(position, f, blob)
+            dist_around_wall = min([path_distance(convex_hull_path(position, f, points), (width, height))
+                                    for points in point_sets])
+            if dist_around_wall > longest_dist:
+                longest_dist = dist_around_wall
+
+    return longest_dist
 
 class ClosestDotSearchAgent(SearchAgent):
     "Search for all food using a sequence of searches"
