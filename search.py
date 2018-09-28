@@ -97,15 +97,71 @@ class Path:
                 return True
         return False
 
+import heapq
+
+class HeapItemWrapper:
+
+    def __init__(self, item, count, priority, comparator):
+        self.item = item
+        self.count = count
+        self.priority = priority
+        self.comparator = comparator
+
+    def __lt__(self, other):
+        return self.comparator(self.priority, other.priority)
+
+class MyPriorityQueue:
+    """
+      Implements a priority queue data structure. Each inserted item
+      has a priority associated with it and the client is usually interested
+      in quick retrieval of the lowest-priority item in the queue. This
+      data structure allows O(1) access to the lowest-priority item.
+    """
+    def  __init__(self, comparator=None):
+        self.heap = []
+        self.count = 0
+        self.comparator = comparator if comparator is not None else lambda x, y: x < y
+
+    def push(self, item, priority):
+        entry = HeapItemWrapper(item, self.count, priority, self.comparator)
+        heapq.heappush(self.heap, entry)
+        self.count += 1
+
+    def pop(self):
+        entry = heapq.heappop(self.heap)
+        item = entry.item
+        return item
+
+    def isEmpty(self):
+        return len(self.heap) == 0
+
+    def update(self, item, priority):
+        # If item already in priority queue with higher priority, update its priority and rebuild the heap.
+        # If item already in priority queue with equal or lower priority, do nothing.
+        # If item not in priority queue, do the same thing as self.push.
+        for index, entry in enumerate(self.heap):
+            i, c, p = entry.item, entry.count, entry.priority
+            if i == item:
+                if self.comparator(p, priority):
+                    break
+                del self.heap[index]
+                entry.priority = priority
+                self.heap.append(entry)
+                heapq.heapify(self.heap)
+                break
+        else:
+            self.push(item, priority)
+
 class Frontier:
 
-    def __init__(self, problem, type='Stack', heuristic=None, cycle_checking=False, path_checking=False):
+    def __init__(self, problem, type='Stack', heuristic=None, comparator=None,
+                 cycle_checking=False, path_checking=False):
         if type == 'Stack':
             self.frontier = Stack()
         elif type == 'Queue':
             self.frontier = Queue()
         elif type == 'PriorityQueue':
-            self.frontier = PriorityQueue()
+            self.frontier = MyPriorityQueue(comparator=comparator)
         else:
             util.raiseNotDefined()
 
@@ -130,8 +186,8 @@ class Frontier:
             if path.end_forms_cycle():
                 return
 
-        if isinstance(self.frontier, PriorityQueue):
-            self.frontier.push(path, self.cost(path))
+        if isinstance(self.frontier, MyPriorityQueue):
+            self.frontier.push(path, self.priority(path))
         else:
             self.frontier.push(path)
 
@@ -147,6 +203,12 @@ class Frontier:
         if self.heuristic is not None:
             cost += self.heuristic(path.end_state(), self.problem)
         return cost
+
+    def priority(self, path):
+        if self.heuristic is not None:
+            return path.cost(), self.heuristic(path.end_state(), self.problem)
+        else:
+            return path.cost()
 
     def better_path_visited(self, path):
         if not self.cycle_checking:
@@ -216,7 +278,17 @@ def nullHeuristic(state, problem=None):
 def aStarSearch(problem, heuristic=nullHeuristic):
     """Search the node that has the lowest combined cost and heuristic first."""
     "*** YOUR CODE HERE ***"
-    return search(problem, Frontier(problem=problem, type='PriorityQueue', cycle_checking=True, heuristic=heuristic))
+    def priority_queue_comparator(p1, p2):
+        g1, h1 = p1
+        g2, h2 = p2
+        f1, f2 = g1 + h1, g2 + h2
+        if f1 == f2:
+            return h1 < h2
+        else:
+            return f1 < f2
+
+    return search(problem, Frontier(problem=problem, type='PriorityQueue', cycle_checking=True, heuristic=heuristic,
+                                    comparator=priority_queue_comparator))
 
 
 # Abbreviations
